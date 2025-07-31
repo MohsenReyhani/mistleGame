@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>My Phaser Game</title>
+
+    <!-- 1) Load Phaser from a CDN (or local copy) -->
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+    <!--  OR, if you downloaded phaser.min.js into /libs: -->
+    <!-- <script src="libs/phaser.min.js"></script> -->
+
+    <!-- 2) Then load your scene files -->
+    <script src="src/scenes/BootScene.js"></script>
+    <script src="src/scenes/LoadingScene.js"></script>
+    <script src="src/scenes/MenuScene.js"></script>
+    <script src="src/scenes/GameScene.js"></script>
+    <script src="src/scenes/GameOverScene.js"></script>
+
+    <!-- 3) Finally load main.js, which contains your config -->
+    <script src="main.js"></script>
+  </head>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+    }
+
+  </style>
+  <body>
+    <!-- the Phaser canvas will be injected here -->
+  </body>
+</html>
