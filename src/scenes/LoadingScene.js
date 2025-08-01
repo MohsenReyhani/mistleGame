@@ -49,6 +49,15 @@ class LoadingScene extends Phaser.Scene {
   }
 
   create() {
+
+    const canvasTex = this.textures.createCanvas('pixel', 1, 1);
+    canvasTex.context.fillStyle = '#ffffff';   // white pixel (or any color, it's just a mask)
+    canvasTex.context.fillRect(0, 0, 1, 1);
+    canvasTex.refresh();
+    
+    // create your animations, show loading screen, then:
+    this.time.delayedCall(1000, () => this.scene.start('MenuScene'));
+
     // Create animations
     this.createAnimations();
     
@@ -89,8 +98,8 @@ class LoadingScene extends Phaser.Scene {
     this.anims.create({
       key: 'player_walk',
       frames: this.anims.generateFrameNumbers('hero', {
-        start: 37,
-        end:   44
+        start: 36,
+        end:   43
       }),
       frameRate: 3,
       repeat: -1                // loop forever
@@ -99,18 +108,18 @@ class LoadingScene extends Phaser.Scene {
     this.anims.create({
       key: 'player_jump',
       frames: this.anims.generateFrameNumbers('hero', {
-        start: 12,
-        end:   17
+        start: 11,
+        end:   16
       }),
-      frameRate: 5,
+      frameRate: 11,
       repeat: 0                  // play once
     });
 
     this.anims.create({
       key: 'player_hit',
       frames: this.anims.generateFrameNumbers('hero', {
-        start: 44,
-        end:   45
+        start: 43,
+        end:   44
       }),
       frameRate: 1,
       repeat: 0

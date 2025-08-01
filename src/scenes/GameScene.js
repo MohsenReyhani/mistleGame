@@ -40,6 +40,11 @@ class GameScene extends Phaser.Scene {
     create() {
       const { width, height } = this.scale;
 
+      this.guns        = this.physics.add.group();
+      this.secretBoxes = this.physics.add.group();
+      this.bullets     = this.physics.add.group();
+      this.meteors     = this.physics.add.group();
+
       // Reset game stats
       this.resetGameStats();
 
@@ -50,12 +55,20 @@ class GameScene extends Phaser.Scene {
       // audio
       this.sound.play('bgm', { loop: true, volume: 0.3 });
 
-      // ground - make it indestructible
-      this.ground = this.add.rectangle(width/2, height - 8, width, 16)
-          .setOrigin(0.5, 0.5)
-          .setFillStyle(0x333333);
-      this.physics.add.existing(this.ground, true);
-      this.ground.body.allowGravity = false;
+      // // ground - make it indestructible
+      // this.textures.generate('pixel', { width: 1, height: 1 });
+      // this.ground = this.add.rectangle(width/2, height - 8, width, 16)
+      //     .setOrigin(0.5, 0.5)
+      //     .setFillStyle(0x333333);
+      // this.physics.add.existing(this.ground, true);
+      // this.ground.body.setSize(width, 16);
+      // this.ground.body.setOffset(-width/2, -8);
+      // this.ground.body.allowGravity = false;
+
+      this.ground = this.physics.add
+      .staticImage(width/2, height - 8, 'pixel')
+      .setDisplaySize(width, 16)
+      .refreshBody();   
 
       // player with idle animation - using character from sprite sheet
       this.player = this.physics.add.sprite(width/2, height - 100, 'hero')
@@ -97,16 +110,6 @@ class GameScene extends Phaser.Scene {
 
       });
 
-
-      // meteors
-      this.meteors = this.physics.add.group();
-
-      // power-ups
-      this.guns = this.physics.add.group();
-      this.secretBoxes = this.physics.add.group();
-
-      // bullets for gun
-      this.bullets = this.physics.add.group();
 
       // collisions
       this.physics.add.collider(this.player, this.ground);
@@ -355,6 +358,9 @@ class GameScene extends Phaser.Scene {
       });
       
       if (this.strikes >= 3) {
+        this.sound.stopAll();
+        // pause or stop the GameScene
+        this.scene.pause();            // optional, since restart will stop it anyway        
         this.scene.start('GameOverScene', { score: this.time.now - this.gameStartTime });
       }
     }
