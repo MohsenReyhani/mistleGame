@@ -1,9 +1,5 @@
 // Game Settings - Easy to modify
 const GAME_SETTINGS = {
-  // Dark mode settings
-  darkModeDuration: 8000, // 8 seconds
-  lightCircleRadius: 150, // Light circle around player
-  darkOverlayAlpha: 0.8,  // How dark the screen gets
   
   // Gun settings
   gunDuration: 10000,     // 10 seconds
@@ -34,13 +30,11 @@ class GameScene extends Phaser.Scene {
       this.playerHasGun = false;
       this.playerGun = null;
       this.gunTimer = null;
-      this.darkModeActive = false;
-      this.darkModeTimer = null;
-      this.darkOverlay = null;
-      this.lightMask = null;
       this.powerUpActive = false; // Prevent multiple power-ups at once
       this.playerHit = false; // Track if player is in hit animation
       this.playerHitTimer = null; // Timer for hit animation
+      this.lastTapTime = 0;       // timestamp of the previous tap
+      this.tapThreshold = 300;  // max ms between taps to count as “double”
     }
 
     create() {
@@ -61,11 +55,48 @@ class GameScene extends Phaser.Scene {
           .setOrigin(0.5, 0.5)
           .setFillStyle(0x333333);
       this.physics.add.existing(this.ground, true);
+      this.ground.body.allowGravity = false;
 
       // player with idle animation - using character from sprite sheet
       this.player = this.physics.add.sprite(width/2, height - 100, 'hero')
           .setCollideWorldBounds(true);
       this.player.play('player_idle');
+
+      
+      // track where we’re moving to (null = no auto‐move)
+      this.moveToX = null;
+
+      this.cursors = this.input.keyboard.createCursorKeys();
+
+      // single pointer handler: jump if tapped above, else walk toward tap
+      this.input.on('pointerdown', pointer => {
+
+        const now = this.time.now;               // current in-game timestamp
+        const msSinceLast = now - this.lastTapTime;
+
+        if (this.playerHasGun) {
+          this.shootBullet();
+        }else if (!this.playerHasGun && msSinceLast < this.tapThreshold) {
+          // ── DOUBLE TAP DETECTED ──
+          if (this.player.body.blocked.down) {
+            this.player.setVelocityY(-400);
+            this.sound.play('jump');
+          }
+          // reset so you need a fresh double-tap for the next jump
+          this.lastTapTime = 0;
+        } else {
+          // ── FIRST TAP ──
+          // record and let the second tap within threshold trigger
+          this.lastTapTime = now;
+        }
+
+        // 2) otherwise WALK horizontally toward the tap position
+        this.moveToX = pointer.x;
+        const speed = 300;
+        this.player.setVelocityX(this.moveToX < this.player.x ? -speed : speed);
+
+      });
+
 
       // meteors
       this.meteors = this.physics.add.group();
@@ -88,18 +119,6 @@ class GameScene extends Phaser.Scene {
       
       // bullet collisions
       this.physics.add.overlap(this.bullets, this.meteors, this.onBulletHit, null, this);
-
-      // keyboard input
-      this.cursors = this.input.keyboard.createCursorKeys();
-      this.wasd = this.input.keyboard.addKeys('W,A,S,D');
-
-      // jump on tap/space
-      this.input.on('pointerdown', () => {
-        if (this.player.body.blocked.down) {
-          this.player.setVelocityY(-400);
-          this.sound.play('jump');
-        }
-      });
 
       // spawn loop
       this.spawnTimer = this.time.addEvent({
@@ -132,12 +151,8 @@ class GameScene extends Phaser.Scene {
         delay: 1000, loop: true,
         callback: () => {
           this.spawnInterval = Math.max(GAME_SETTINGS.minSpawnInterval, this.spawnInterval - GAME_SETTINGS.difficultyIncrease);
-          this.spawnTimer.reset({
-            delay: this.spawnInterval,
-            loop: true,
-            callback: this.spawnMeteor,
-            callbackScope: this
-          });
+          this.spawnInterval = Math.max(GAME_SETTINGS.minSpawnInterval, this.spawnInterval - GAME_SETTINGS.difficultyIncrease);
+          this.spawnTimer.delay = this.spawnInterval;
         }
       });
 
@@ -145,7 +160,6 @@ class GameScene extends Phaser.Scene {
       this.strikesText = this.add.text(10, 10, 'Strikes: 0', { fontSize: '20px', fill: '#ffffff' });
       this.powerUpText = this.add.text(10, 40, '', { fontSize: '16px', fill: '#ffff00' });
       this.gunTimerText = this.add.text(10, 70, '', { fontSize: '14px', fill: '#00ff00' });
-      this.darkModeTimerText = this.add.text(10, 100, '', { fontSize: '14px', fill: '#ff00ff' });
       
       // Start game timer
       this.gameStartTime = this.time.now;
@@ -155,7 +169,6 @@ class GameScene extends Phaser.Scene {
       this.strikes = 0;
       this.spawnInterval = GAME_SETTINGS.initialSpawnInterval;
       this.playerHasGun = false;
-      this.darkModeActive = false;
       this.powerUpActive = false;
       this.playerHit = false;
       
@@ -164,24 +177,11 @@ class GameScene extends Phaser.Scene {
         this.gunTimer.destroy();
         this.gunTimer = null;
       }
-      if (this.darkModeTimer) {
-        this.darkModeTimer.destroy();
-        this.darkModeTimer = null;
-      }
       if (this.playerHitTimer) {
         this.playerHitTimer.destroy();
         this.playerHitTimer = null;
       }
-      
-      // Remove dark overlay if exists
-      if (this.darkOverlay) {
-        this.darkOverlay.destroy();
-        this.darkOverlay = null;
-      }
-      if (this.lightMask) {
-        this.lightMask.destroy();
-        this.lightMask = null;
-      }
+  
       
       // Remove player gun if exists
       if (this.playerGun) {
@@ -206,9 +206,6 @@ class GameScene extends Phaser.Scene {
       }
       if (this.gunTimerText) {
         this.gunTimerText.setText('');
-      }
-      if (this.darkModeTimerText) {
-        this.darkModeTimerText.setText('');
       }
     }
   
@@ -289,56 +286,6 @@ class GameScene extends Phaser.Scene {
       this.sound.play('hit'); // Using hit sound for box pickup
       box.destroy();
       
-      // Activate dark mode
-      this.activateDarkMode();
-    }
-
-    activateDarkMode() {
-      this.powerUpActive = true;
-      this.darkModeActive = true;
-      this.powerUpText.setText('🌙 DARK MODE ACTIVATED!');
-      
-      // Create completely black overlay
-      this.darkOverlay = this.add.rectangle(
-        this.scale.width/2, 
-        this.scale.height/2, 
-        this.scale.width, 
-        this.scale.height, 
-        0x000000, 
-        1.0 // Completely black
-      );
-      
-      // Create a mask for the light circle
-      this.lightMask = this.add.graphics();
-      this.lightMask.fillStyle(0xffffff);
-      this.lightMask.fillCircle(this.player.x, this.player.y, GAME_SETTINGS.lightCircleRadius);
-      
-      // Apply the mask to the dark overlay to create a hole
-      this.darkOverlay.setMask(this.lightMask.createGeometryMask());
-      
-      // Dark mode lasts for configured duration
-      this.darkModeTimer = this.time.addEvent({
-        delay: GAME_SETTINGS.darkModeDuration,
-        callback: () => {
-          this.deactivateDarkMode();
-        }
-      });
-    }
-
-    deactivateDarkMode() {
-      this.darkModeActive = false;
-      this.powerUpActive = false;
-      this.powerUpText.setText('');
-      this.darkModeTimerText.setText('');
-      
-      if (this.darkOverlay) {
-        this.darkOverlay.destroy();
-        this.darkOverlay = null;
-      }
-      if (this.lightMask) {
-        this.lightMask.destroy();
-        this.lightMask = null;
-      }
     }
 
     shootBullet() {
@@ -353,12 +300,18 @@ class GameScene extends Phaser.Scene {
       bullet.body.setGravityY(0);
       
       // Play gun fire animation at gun position
-      const fireEffect = this.add.sprite(this.player.x + 15, this.player.y - 5, 'fire');
-      fireEffect.setTint(0xff6600); // Orange tint for fire effect
-      fireEffect.play('gun_fire_anim');
-      fireEffect.once('animationcomplete', () => {
-        fireEffect.destroy();
+      const fireEffect = this.add.sprite(this.player.x + 15, this.player.y - 5, 'fire').setDepth(10);
+      this.tweens.add({
+        targets: fireEffect,
+        alpha: 0,
+        duration: 1000,
+        onComplete: () => fireEffect.destroy()
       });
+      // fireEffect.setTint(0xff6600); // Orange tint for fire effect
+      //fireEffect.play('gun_fire_anim');
+      // fireEffect.once('animationcomplete', () => {
+      //   fireEffect.destroy();
+      // });
       
       // Play gun fire sound
       this.sound.play('gun_fire');
@@ -417,13 +370,24 @@ class GameScene extends Phaser.Scene {
     }
   
     update() {
-      // Update light mask position in dark mode
-      if (this.darkModeActive && this.lightMask) {
-        this.lightMask.clear();
-        this.lightMask.fillStyle(0xffffff);
-        this.lightMask.fillCircle(this.player.x, this.player.y, GAME_SETTINGS.lightCircleRadius);
+
+      if (Phaser.Input.Keyboard.JustDown(this.cursors.up)) {
+        if (this.playerHasGun) {
+          this.shootBullet();
+        } else if (this.player.body.blocked.down) {
+          this.player.setVelocityY(-400);
+          this.sound.play('jump');
+        }
       }
 
+      if (this.moveToX !== null) {
+        // moving left & overshot?
+        if (this.player.body.velocity.x < 0 && this.player.x <= this.moveToX
+            || this.player.body.velocity.x > 0 && this.player.x >= this.moveToX) {
+          this.player.setVelocityX(0);
+          this.moveToX = null;
+        }
+      }
       // Update gun position on player
       if (this.playerHasGun && this.playerGun) {
         this.playerGun.setPosition(this.player.x + 15, this.player.y - 5);
@@ -433,12 +397,6 @@ class GameScene extends Phaser.Scene {
       if (this.playerHasGun && this.gunTimer) {
         const remainingTime = Math.ceil(this.gunTimer.getRemainingSeconds());
         this.gunTimerText.setText(`🔫 Gun: ${remainingTime}s`);
-      }
-
-      // Update dark mode timer display
-      if (this.darkModeActive && this.darkModeTimer) {
-        const remainingTime = Math.ceil(this.darkModeTimer.getRemainingSeconds());
-        this.darkModeTimerText.setText(`🌙 Dark Mode: ${remainingTime}s`);
       }
 
       // Update meteor zigzag movement
@@ -457,43 +415,18 @@ class GameScene extends Phaser.Scene {
           bullet.destroy();
         }
       });
-
-      // jumping: only allow if touching down (arrow up or W for jump)
-      if ((Phaser.Input.Keyboard.JustDown(this.cursors.up) || Phaser.Input.Keyboard.JustDown(this.wasd.W)) && this.player.body.touching.down) {
-        this.player.setVelocityY(-400);
-        this.sound.play('jump');
-        // Play jump animation
-        this.player.play('player_jump');
-      }
-
-      // Shooting with gun (only if player has gun and not jumping)
-      if (Phaser.Input.Keyboard.JustDown(this.cursors.space) && this.playerHasGun && !this.player.body.touching.down) {
-        this.shootBullet();
-      }
-
-      const speed = 300;
-      let isMoving = false;
       
-      // Movement: Arrow keys OR WASD (A/D for left/right, W for jump)
-      if (this.cursors.left.isDown || this.wasd.A.isDown) {
-        this.player.setVelocityX(-speed);
-        isMoving = true;
-      }
-      else if (this.cursors.right.isDown || this.wasd.D.isDown) {
-        this.player.setVelocityX(speed);
-        isMoving = true;
-      }
-      else {
-        this.player.setVelocityX(0);
-      }
-
-      // Handle player animations
+      // Determine if the player is currently moving horizontally
+      const isMoving = this.player.body.velocity.x !== 0;
+      
+      // Handle player animations based on isMoving / in-air
       this.handlePlayerAnimations(isMoving);
   
       // occasional camera shake
       if (Phaser.Math.Between(0, 1000) < 2) {
         this.cameras.main.shake(200, 0.01);
       }
+      
     }
 
     handlePlayerAnimations(isMoving) {
