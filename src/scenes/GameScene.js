@@ -18,7 +18,12 @@ const GAME_SETTINGS = {
   // Difficulty settings
   initialSpawnInterval: 2000,
   minSpawnInterval: 200,
-  difficultyIncrease: 20
+  difficultyIncrease: 20,
+
+  playerWalkSpeed: 200,
+
+  groundStepHeight: 16,
+  groundWaitMs: 5000
 };
 
 class GameScene extends Phaser.Scene {
@@ -33,8 +38,6 @@ class GameScene extends Phaser.Scene {
     this.powerUpActive = false; // Prevent multiple power-ups at once
     this.playerHit = false; // Track if player is in hit animation
     this.playerHitTimer = null; // Timer for hit animation
-    this.lastTapTime = 0;       // timestamp of the previous tap
-    this.tapThreshold = 300;  // max ms between taps to count as “double”
   }
 
   create() {
@@ -52,16 +55,6 @@ class GameScene extends Phaser.Scene {
     this.add.image(width / 2, height / 2, 'game_bg')
       .setDisplaySize(width, height);
 
-    // // ground - make it indestructible
-    // this.textures.generate('pixel', { width: 1, height: 1 });
-    // this.ground = this.add.rectangle(width/2, height - 8, width, 16)
-    //     .setOrigin(0.5, 0.5)
-    //     .setFillStyle(0x333333);
-    // this.physics.add.existing(this.ground, true);
-    // this.ground.body.setSize(width, 16);
-    // this.ground.body.setOffset(-width/2, -8);
-    // this.ground.body.allowGravity = false;
-
     this.ground = this.physics.add
       .staticImage(width / 2, height - 8, 'pixel')
       .setDisplaySize(width, 16)
@@ -69,48 +62,41 @@ class GameScene extends Phaser.Scene {
 
     // player with idle animation - using character from sprite sheet
     this.player = this.physics.add.sprite(width / 2, height - 100, 'hero')
-      .setCollideWorldBounds(true);
+      .setCollideWorldBounds(true)
+      .setBounce(1, 0);
     this.player.play('player_idle');
-
-
-    // track where we’re moving to (null = no auto‐move)
-    this.moveToX = null;
+    this.player.setVelocityX(GAME_SETTINGS.playerWalkSpeed);
 
     this.cursors = this.input.keyboard.createCursorKeys();
 
     // single pointer handler: jump if tapped above, else walk toward tap
     this.input.on('pointerdown', pointer => {
+      if (this.playerHasGun) this.shootBullet();
+      this.player.setVelocityX(-this.player.body.velocity.x);
+    });
 
-      const now = this.time.now;               // current in-game timestamp
-      const msSinceLast = now - this.lastTapTime;
+    this.groundPattern = [2, 1];
+    this.groundPatternIx = 0;
 
-      if (this.playerHasGun) {
-        this.shootBullet();
-      } else if (!this.playerHasGun && msSinceLast < this.tapThreshold) {
-        // ── DOUBLE TAP DETECTED ──
-        if (this.player.body.blocked.down) {
-          this.player.setVelocityY(-400);
-          this.sound.play('jump');
-        }
-        // reset so you need a fresh double-tap for the next jump
-        this.lastTapTime = 0;
-      } else {
-        // ── FIRST TAP ──
-        // record and let the second tap within threshold trigger
-        this.lastTapTime = now;
+    this.time.addEvent({
+      delay: GAME_SETTINGS.groundWaitMs,
+      loop: true,
+      callback: () => {
+        // compute how many steps this tick
+        const steps = this.groundPattern[this.groundPatternIx];
+
+        // move ground up
+        this.ground.y -= steps * GAME_SETTINGS.groundStepHeight;
+        this.ground.refreshBody();
+        this.groundPatternIx = (this.groundPatternIx + 1) % this.groundPattern.length;
+        this.player.y -= steps * GAME_SETTINGS.groundStepHeight;
+        this.player.body.velocity.y = 0;
       }
-
-      // 2) otherwise WALK horizontally toward the tap position
-      this.moveToX = pointer.x;
-      const speed = 300;
-      this.player.setVelocityX(this.moveToX < this.player.x ? -speed : speed);
-
     });
 
 
     // collisions
     this.physics.add.collider(this.player, this.ground);
-    this.physics.add.collider(this.meteors, this.ground, this.onGroundHit, null, this);
     this.physics.add.overlap(this.player, this.meteors, this.onHit, null, this);
 
     // power-up collisions
@@ -163,6 +149,14 @@ class GameScene extends Phaser.Scene {
 
     // Start game timer
     this.gameStartTime = this.time.now;
+
+    this.time.addEvent({
+      delay: 1000,
+      loop: true,
+      callback: () => {
+        if (this.playerHasGun) this.shootBullet();
+      }
+    });
   }
 
   resetGameStats() {
@@ -334,6 +328,9 @@ class GameScene extends Phaser.Scene {
     this.sound.play('hit');
     if (meteor.getData('hit')) return;
 
+    const boom = this.add.sprite(meteor.x, meteor.y, 'explosion');
+    boom.play('explode');
+
     meteor.setData('hit', true);
     meteor.destroy();
     this.strikes++;
@@ -343,9 +340,8 @@ class GameScene extends Phaser.Scene {
     this.playerHit = true;
     this.player.play('player_hit');
     this.player.once('animationcomplete-player_hit', () => {
-      this.playerHit = false;
-      // decide walk or idle here
-      this.player.play(this.player.body.blocked.down ? 'player_idle' : 'player_jump');
+      this.player.play('player_idle');
+      this.player.setVelocityX(-this.player.body.velocity.x);
     });
 
     // Reset hit animation after it completes
@@ -362,35 +358,16 @@ class GameScene extends Phaser.Scene {
     }
   }
 
-  onGroundHit(meteor, ground) {
-    // spawn an explosion at the meteor's position
-    const boom = this.add.sprite(meteor.x, meteor.y, 'explosion');
-    boom.play('explode');
-    this.sound.play('thud');
-
-    meteor.destroy();  // remove the falling meteor
-    // Ground remains intact - no destruction
-  }
 
   update() {
 
-    if (Phaser.Input.Keyboard.JustDown(this.cursors.up)) {
-      if (this.playerHasGun) {
-        this.shootBullet();
-      } else if (this.player.body.blocked.down) {
-        this.player.setVelocityY(-400);
-        this.sound.play('jump');
-      }
+    if (
+      this.player.x <= this.player.width / 2 && this.player.body.velocity.x < 0 ||
+      this.player.x >= this.scale.width - this.player.width / 2 && this.player.body.velocity.x > 0
+    ) {
+      this.player.setVelocityX(-this.player.body.velocity.x);
     }
 
-    if (this.moveToX !== null) {
-      // moving left & overshot?
-      if (this.player.body.velocity.x < 0 && this.player.x <= this.moveToX
-        || this.player.body.velocity.x > 0 && this.player.x >= this.moveToX) {
-        this.player.setVelocityX(0);
-        this.moveToX = null;
-      }
-    }
     // Update gun position on player
     if (this.playerHasGun && this.playerGun) {
       this.playerGun.setPosition(this.player.x + 15, this.player.y - 5);
@@ -433,23 +410,12 @@ class GameScene extends Phaser.Scene {
   }
 
   handlePlayerAnimations(isMoving) {
-    // if in hit animation, bail out
     if (this.playerHit) return;
-
-    // jumping
-    if (!this.player.body.blocked.down) {
-      if (this.player.anims.currentAnim?.key !== 'player_jump') {
-        this.player.play('player_jump');
-      }
-    }
-    // walking
-    else if (isMoving) {
+    if (isMoving) {
       if (this.player.anims.currentAnim?.key !== 'player_walk') {
         this.player.play('player_walk');
       }
-    }
-    // idle
-    else {
+    } else {
       if (this.player.anims.currentAnim?.key !== 'player_idle') {
         this.player.play('player_idle');
       }
